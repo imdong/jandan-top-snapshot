@@ -26,8 +26,8 @@ jobs:
 
       - name: git commit
         run: |
-          git config user.name github-actions \
-          git config user.email github-actions@users.noreply.github.com \
-          git add ./docs/ \
-          git commit -m "Create Snapshot By $(date)" \
-          git push
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add ./docs/
+          git commit -m "Create Snapshot By $(date)"
+          git push origin main
