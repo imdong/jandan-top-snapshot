@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  snapshot:
     runs-on: ubuntu-latest  # 在 Ubuntu 上运行
 
     steps:
@@ -25,4 +25,9 @@ jobs:
         run: go run main.go
 
       - name: git commit
-        run: git add ./docs/ && git commit -m "Create Snapshot By $(date)" && git push
+        run: |
+          git config user.name github-actions \
+          git config user.email github-actions@users.noreply.github.com \
+          git add ./docs/ \
+          git commit -m "Create Snapshot By $(date)" \
+          git push
