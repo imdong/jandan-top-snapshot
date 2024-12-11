@@ -1,0 +1,28 @@
+name: 定时采集
+
+on:
+  schedule:
+    - cron: '25 6,18 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest  # 在 Ubuntu 上运行
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.23.4'
+
+      - name: Install dependencies
+        run: go mod tidy
+
+      - name: Create Snapshot
+        run: go run main.go
+
+      - name: git commit
+        run: git add ./docs/ && git commit -m "Create Snapshot By $(date)" && git push

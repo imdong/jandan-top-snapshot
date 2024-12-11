@@ -32,6 +32,7 @@ type Row struct {
 
 // 获取当前时间
 var now = time.Now()
+var env = os.Getenv("ENV")
 
 func main() {
 	// 获取环境提供的密码
@@ -50,7 +51,7 @@ func main() {
 	// 如果是本地环境且本地有缓存则直接读取
 	var body []byte
 	_, err := os.Stat("./docs/body.html")
-	if os.Getenv("ENV") == "local" && err != nil {
+	if env != "local" || err != nil {
 		body, err = readHtmlBody()
 		if err != nil {
 			return
@@ -213,7 +214,7 @@ func scanAesDecrypt() {
 		decryptedContent := aesDecrypt(string(content))
 
 		// 写入解密后的文件
-		err = os.WriteFile("./docs/"+path[:len(path)-4], []byte(decryptedContent), 0644)
+		err = os.WriteFile("./docs/"+path[:len(path)-4]+"de.md", []byte(decryptedContent), 0644)
 		if err != nil {
 			fmt.Println("Error writing to file:", err)
 			return err
@@ -259,10 +260,12 @@ func readHtmlBody() (body []byte, err error) {
 	}
 
 	// 将 body 缓存到本地, 并用于调试
-	err = os.WriteFile("./docs/body.html", body, 0644)
-	if err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
+	if env == "local" {
+		err = os.WriteFile("./docs/body.html", body, 0644)
+		if err != nil {
+			fmt.Println("Error writing to file:", err)
+			return
+		}
 	}
 
 	return body, nil
