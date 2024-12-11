@@ -214,7 +214,7 @@ func scanAesDecrypt() {
 		decryptedContent := aesDecrypt(string(content))
 
 		// 写入解密后的文件
-		err = os.WriteFile("./docs/"+path[:len(path)-4]+"de.md", []byte(decryptedContent), 0644)
+		err = os.WriteFile("./docs/"+path[:len(path)-4], []byte(decryptedContent), 0644)
 		if err != nil {
 			fmt.Println("Error writing to file:", err)
 			return err
