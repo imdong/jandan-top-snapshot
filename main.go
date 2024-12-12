@@ -230,6 +230,7 @@ func scanAesDecrypt() {
 	})
 }
 
+// readHtmlBody 读取 HTML 内容
 func readHtmlBody() (body []byte, err error) {
 	// 创建一个新的请求
 	url := "https://jandan.net/top"
@@ -310,9 +311,9 @@ func makeMdDoc(rows []Row) string {
 	mdContent := fmt.Sprintf("# 煎蛋热榜快照\n\n> 采集时间: %s\n\n", now.Format("2006-01-02 15:04:05"))
 	for _, comment := range rows {
 		mdContent += fmt.Sprintf("## %s (%s) \n\n", comment.Name, comment.Time)
-		mdContent += fmt.Sprintf("- **ID**: %s #%s, **发布防伪码**: %s\n", comment.Type, comment.ID, comment.Code)
+		mdContent += fmt.Sprintf("- **ID**: %s #%s, **防伪码**: %s\n", comment.Type, comment.ID, comment.Code)
 		mdContent += fmt.Sprintf("- **正文**: %s\n", comment.Content)
-		mdContent += fmt.Sprintf("- **OO**: %s, **XX**: %s, **Tucao**: %s\n\n", comment.OO, comment.XX, comment.Tucao)
+		mdContent += fmt.Sprintf("- [**OO**: %s, **XX**: %s, **Tucao**: %s](https://jandan.net/t/%s#tucao-list)\n\n", comment.OO, comment.XX, comment.Tucao, comment.ID)
 	}
 
 	return mdContent
