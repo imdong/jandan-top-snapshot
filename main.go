@@ -83,39 +83,39 @@ func main() {
 	}
 
 	// 更新 list.json 文件
-	listFileName := "./docs/list.md"
+	listFileName := "./docs/index.md"
 
-	// 删除 list.md 文件中的 **12小时后开放**
+	// 删除 index.md 文件中的 **12小时后开放**
 	listContent, err := os.ReadFile(listFileName)
 	if err != nil {
-		fmt.Println("Error reading list.md:", err)
+		fmt.Println("Error reading index.md:", err)
 		return
 	}
 	listContent = []byte(strings.ReplaceAll(string(listContent), " **12小时后开放**", ""))
 	err = os.WriteFile(listFileName, listContent, 0644)
 	if err != nil {
-		fmt.Println("Error writing to list.md:", err)
+		fmt.Println("Error writing to index.md:", err)
 		return
 	}
 
-	// 向 list.md 文件追加内容
+	// 向 index.md 文件追加内容
 	listFile, err := os.OpenFile(listFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Println("Error opening list.md:", err)
+		fmt.Println("Error opening index.md:", err)
 		return
 	}
 	defer func(listFile *os.File) {
 		_ = listFile.Close()
 	}(listFile)
 
-	// 写入 list.md 文件
+	// 写入 index.md 文件
 	_, err = listFile.WriteString(fmt.Sprintf("- [%s](%s) **12小时后开放**\n", now.Format("01/02 15:04:05"), fileName))
 	if err != nil {
-		fmt.Println("Error writing to list.md:", err)
+		fmt.Println("Error writing to index.md:", err)
 		return
 	}
 
-	fmt.Println("Comments successfully saved and list.md updated.")
+	fmt.Println("Comments successfully saved and index.md updated.")
 }
 
 // aesEncrypt encrypts the content using AES encryption.
