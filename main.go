@@ -187,7 +187,7 @@ func convertToMarkdown(html string) string {
 	html = regexp.MustCompile(`<img[^>]*src="([^"]+)"[^>]*>`).ReplaceAllString(html, "![](https:$1)")
 
 	// Replace HTML line breaks with newlines
-	html = strings.ReplaceAll(html, "<br />", "  \n")
+	html = strings.ReplaceAll(html, "<br />", "  \n\n")
 
 	// Remove any remaining HTML tags
 	html = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(html, "")
@@ -313,8 +313,11 @@ func makeMdDoc(rows []Row) string {
 		mdContent += fmt.Sprintf("## %s (%s) \n\n", comment.Name, comment.Time)
 		mdContent += fmt.Sprintf("- **ID**: %s #%s, **防伪码**: %s\n", comment.Type, comment.ID, comment.Code)
 		mdContent += fmt.Sprintf("- **正文**: %s\n", comment.Content)
-		mdContent += fmt.Sprintf("- [**OO**: %s, **XX**: %s, **Tucao**: %s](https://jandan.net/t/%s#tucao-list)\n\n", comment.OO, comment.XX, comment.Tucao, comment.ID)
-	}
+		mdContent += fmt.Sprintf(
+			"- **OO**: [%s](https://jandan.net/t/%s#tucao-like), **XX**: [%s](https://jandan.net/t/%s#tucao-unlike), **Tucao**: [%s](https://jandan.net/t/%s#tucao-list)\n\n",
+			 comment.OO,comment.ID, comment.XX, comment.ID,comment.Tucao, comment.ID
+		)
+	
 
 	return mdContent
 }
