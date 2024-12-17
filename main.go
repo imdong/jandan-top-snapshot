@@ -317,7 +317,7 @@ func makeMdDoc(rows []Row) string {
 			"- **OO**: [%s](https://jandan.net/t/%s#tucao-like), **XX**: [%s](https://jandan.net/t/%s#tucao-unlike), **Tucao**: [%s](https://jandan.net/t/%s#tucao-list)\n\n",
 			 comment.OO,comment.ID, comment.XX, comment.ID,comment.Tucao, comment.ID,
 		)
-	
+	}
 
 	return mdContent
 }
