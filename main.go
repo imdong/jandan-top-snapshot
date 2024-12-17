@@ -315,7 +315,7 @@ func makeMdDoc(rows []Row) string {
 		mdContent += fmt.Sprintf("- **正文**: %s\n", comment.Content)
 		mdContent += fmt.Sprintf(
 			"- **OO**: [%s](https://jandan.net/t/%s#tucao-like), **XX**: [%s](https://jandan.net/t/%s#tucao-unlike), **Tucao**: [%s](https://jandan.net/t/%s#tucao-list)\n\n",
-			 comment.OO,comment.ID, comment.XX, comment.ID,comment.Tucao, comment.ID
+			 comment.OO,comment.ID, comment.XX, comment.ID,comment.Tucao, comment.ID,
 		)
 	
 
