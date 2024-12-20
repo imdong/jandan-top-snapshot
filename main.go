@@ -315,7 +315,7 @@ func appendList(mdFile string) {
 	}
 
 	// 删除 index.md 文件中的 **12小时后开放**
-	listContent = []byte(strings.ReplaceAll(string(listContent), " **12小时后开放**", ""))
+	listContent = []byte(strings.ReplaceAll(string(listContent), " **12 小时后开放**", ""))
 
 	// 先判断是否有当前月份行 ^- 12月$ 如果没有就添加
 	month := now.Format("01")
@@ -331,7 +331,7 @@ func appendList(mdFile string) {
 	if !dateRegex.Match(listContent) {
 		// 添加当前日期行
 		listContent = append(listContent, []byte(fmt.Sprintf(
-			"\n  - %s: [%s](./docs/%s) **12小时后开放**",
+			"\n  - %s: [%s](docs/%s) **12 小时后开放**",
 			date, now.Format("15:04:05"), mdFile,
 		))...)
 	} else {
@@ -340,7 +340,7 @@ func appendList(mdFile string) {
 		// 在匹配到的日期行后添加新的链接,但不换行, 使用 / 与前一个链接分隔, 用正则表达式 ^  - 01月02日:([^$]+)$ 替换
 		listContent = []byte(
 			dayRegex.ReplaceAllString(string(listContent), fmt.Sprintf(
-				"  - %s:$1 / [%s](./docs/%s) **12小时后开放**",
+				"  - %s:$1 / [%s](docs/%s) **12 小时后开放**",
 				date, now.Format("15:04:05"), mdFile,
 			)),
 		)
