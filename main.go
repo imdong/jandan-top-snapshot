@@ -34,6 +34,9 @@ type Row struct {
 var now = time.Now()
 var env = os.Getenv("ENV")
 
+// 更新 list.json 文件
+var listFileName = "./docs/index.md"
+
 func main() {
 	// 获取环境提供的密码
 	if os.Getenv("AES_CIPHER") != "" {
@@ -70,50 +73,14 @@ func main() {
 	// 保证储存目录存在
 	err = os.MkdirAll("./docs/"+dateStr, 0755)
 
-	err = os.WriteFile("./docs/"+fileName+".aes", []byte(mdContent), 0644)
-	if err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
-	}
+	// 保存到文件
+	saveToFile(fileName, mdContent)
 
-	err = os.WriteFile("./docs/"+fileName, []byte("# 煎蛋热榜快照\n\n快照内容将在12小时内开放, 请到 [jandan.net/top](https://jandan.net/top) 查看最新内容"), 0644)
-	if err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
-	}
+	// 检查列表是否需要跨年
+	crossYear()
 
-	// 更新 list.json 文件
-	listFileName := "./docs/index.md"
-
-	// 删除 index.md 文件中的 **12小时后开放**
-	listContent, err := os.ReadFile(listFileName)
-	if err != nil {
-		fmt.Println("Error reading index.md:", err)
-		return
-	}
-	listContent = []byte(strings.ReplaceAll(string(listContent), " **12小时后开放**", ""))
-	err = os.WriteFile(listFileName, listContent, 0644)
-	if err != nil {
-		fmt.Println("Error writing to index.md:", err)
-		return
-	}
-
-	// 向 index.md 文件追加内容
-	listFile, err := os.OpenFile(listFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Println("Error opening index.md:", err)
-		return
-	}
-	defer func(listFile *os.File) {
-		_ = listFile.Close()
-	}(listFile)
-
-	// 写入 index.md 文件
-	_, err = listFile.WriteString(fmt.Sprintf("- [%s](%s) **12小时后开放**\n", now.Format("01/02 15:04:05"), fileName))
-	if err != nil {
-		fmt.Println("Error writing to index.md:", err)
-		return
-	}
+	// 更新列表
+	appendList(fileName)
 
 	fmt.Println("Comments successfully saved and index.md updated.")
 }
@@ -315,9 +282,118 @@ func makeMdDoc(rows []Row) string {
 		mdContent += fmt.Sprintf("- **正文**: %s\n", comment.Content)
 		mdContent += fmt.Sprintf(
 			"- **OO**: [%s](https://jandan.net/t/%s#tucao-like), **XX**: [%s](https://jandan.net/t/%s#tucao-unlike), **Tucao**: [%s](https://jandan.net/t/%s#tucao-list)\n\n",
-			 comment.OO,comment.ID, comment.XX, comment.ID,comment.Tucao, comment.ID,
+			comment.OO, comment.ID, comment.XX, comment.ID, comment.Tucao, comment.ID,
 		)
 	}
 
 	return mdContent
+}
+
+// saveToFile 保存到文件
+func saveToFile(fileName string, mdContent string) {
+	// 写入加密文件
+	err := os.WriteFile("./docs/"+fileName+".aes", []byte(mdContent), 0644)
+	if err != nil {
+		fmt.Println("Error writing to file:", err)
+		return
+	}
+
+	// 写入未加密文件
+	err = os.WriteFile("./docs/"+fileName, []byte("# 煎蛋热榜快照\n\n快照内容将在12小时内开放, 请到 [jandan.net/top](https://jandan.net/top) 查看最新内容"), 0644)
+	if err != nil {
+		fmt.Println("Error writing to file:", err)
+		return
+	}
+}
+
+// appendList 追加到 list.md 文件
+func appendList(mdFile string) {
+	listContent, err := os.ReadFile(listFileName)
+	if err != nil {
+		fmt.Println("Error reading index.md:", err)
+		return
+	}
+
+	// 删除 index.md 文件中的 **12小时后开放**
+	listContent = []byte(strings.ReplaceAll(string(listContent), " **12小时后开放**", ""))
+
+	// 先判断是否有当前月份行 ^- 12月$ 如果没有就添加
+	month := now.Format("01")
+	monthRegex := regexp.MustCompile(fmt.Sprintf(`(?m)^- %s月`, month))
+	if !monthRegex.Match(listContent) {
+		// 添加当前月份行
+		listContent = append(listContent, []byte(fmt.Sprintf("\n- %s月", month))...)
+	}
+
+	// 检查是否有当前日期行 ^-- 01/02$ 如果没有就添加
+	date := now.Format("01月02日")
+	dateRegex := regexp.MustCompile(fmt.Sprintf(`(?m)^  - %s:`, date))
+	if !dateRegex.Match(listContent) {
+		// 添加当前日期行
+		listContent = append(listContent, []byte(fmt.Sprintf(
+			"\n  - %s: [%s](./docs/%s) **12小时后开放**",
+			date, now.Format("15:04:05"), mdFile,
+		))...)
+	} else {
+		dayRegex := regexp.MustCompile(fmt.Sprintf(`(?m)  - %s:([^$]+)$`, date))
+
+		// 在匹配到的日期行后添加新的链接,但不换行, 使用 / 与前一个链接分隔, 用正则表达式 ^  - 01月02日:([^$]+)$ 替换
+		listContent = []byte(
+			dayRegex.ReplaceAllString(string(listContent), fmt.Sprintf(
+				"  - %s:$1 / [%s](./docs/%s) **12小时后开放**",
+				date, now.Format("15:04:05"), mdFile,
+			)),
+		)
+	}
+
+	// 最终写入 index.md 文件
+	err = os.WriteFile(listFileName, listContent, 0644)
+	if err != nil {
+		fmt.Println("Error writing to index.md:", err)
+		return
+	}
+}
+
+// 添加一个跨年时的任务逻辑, 当 index 中没有 ## 2024年 时,认为已经跨年,将该文档改为 2024.md, 并创建新的 index.md, 然后将 2024.md 加入到 years.md 中
+func crossYear() {
+	// 读取 index.md 文件
+	indexContent, err := os.ReadFile(listFileName)
+	if err != nil {
+		fmt.Println("Error reading index.md:", err)
+		return
+	}
+
+	// 检查是否有当前年份行 ^## [0-9]{4}年$ 并取出匹配到的年份
+	yearRegex := regexp.MustCompile(`(?m)^## ([0-9]{4})年`)
+	matches := yearRegex.FindStringSubmatch(string(indexContent))
+	if len(matches) > 1 && matches[1] != now.Format("2006") {
+		// 认为需要跨年,移动 index 到 对应年份
+		err := os.Rename(listFileName, fmt.Sprintf("./docs/%s.md", matches[1]))
+		if err != nil {
+			fmt.Println("Error renaming file:", err)
+			return
+		}
+		// 追加到 years.md 文件
+		yearsFileName := "./docs/years.md"
+		yearsContent, err := os.ReadFile(yearsFileName)
+		if err != nil {
+			fmt.Println("Error reading years.md:", err)
+			return
+		}
+		// 在 years.md 文件中追加新的年份
+		yearsContent = append(yearsContent, []byte(fmt.Sprintf("- [%s 年](./%s.md)\n", matches[1], matches[1]))...)
+		err = os.WriteFile(yearsFileName, yearsContent, 0644)
+		if err != nil {
+			fmt.Println("Error writing to years.md:", err)
+			return
+		}
+
+		// 创建新的 index.md 文件
+		indexContent = []byte(fmt.Sprintf("# 每日快照索引\n\n> 历年快照请查看 [历年快照](years.md)。\n\n## %s年\n", now.Format("2006")))
+		err = os.WriteFile(listFileName, indexContent, 0644)
+		if err != nil {
+			fmt.Println("Error writing to index.md:", err)
+			return
+		}
+	}
 }
