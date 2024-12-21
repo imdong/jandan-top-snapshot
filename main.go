@@ -331,7 +331,7 @@ func appendList(mdFile string) {
 	if !dateRegex.Match(listContent) {
 		// 添加当前日期行
 		listContent = append(listContent, []byte(fmt.Sprintf(
-			"\n  - %s: [%s](docs/%s) **12 小时后开放**",
+			"\n  - %s: [%s](%s) **12 小时后开放**",
 			date, now.Format("15:04:05"), mdFile,
 		))...)
 	} else {
@@ -340,7 +340,7 @@ func appendList(mdFile string) {
 		// 在匹配到的日期行后添加新的链接,但不换行, 使用 / 与前一个链接分隔, 用正则表达式 ^  - 01月02日:([^$]+)$ 替换
 		listContent = []byte(
 			dayRegex.ReplaceAllString(string(listContent), fmt.Sprintf(
-				"  - %s:$1 / [%s](docs/%s) **12 小时后开放**",
+				"  - %s:$1 / [%s](%s) **12 小时后开放**",
 				date, now.Format("15:04:05"), mdFile,
 			)),
 		)
@@ -374,7 +374,7 @@ func crossYear() {
 			return
 		}
 		// 追加到 years.md 文件
-		yearsFileName := "./docs/years.md"
+		yearsFileName := "years.md"
 		yearsContent, err := os.ReadFile(yearsFileName)
 		if err != nil {
 			fmt.Println("Error reading years.md:", err)
