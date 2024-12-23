@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -33,6 +34,9 @@ type Row struct {
 // 获取当前时间
 var now = time.Now()
 var env = os.Getenv("ENV")
+
+// 蜘蛛的ID
+var botId = os.Getenv("BOT_ID")
 
 // 更新 list.json 文件
 var listFileName = "./docs/index.md"
@@ -208,7 +212,11 @@ func readHtmlBody() (body []byte, err error) {
 	}
 
 	// 自定义 UA, 如果持续一周 403 则终止该仓库
-	req.Header.Set("User-Agent", "Mozilla/5.0 JandanTopSnapshot/1.0 repo(https://github.com/imdong/JandanTopSnapshot)")
+	userAgent := fmt.Sprintf("Mozilla/5.0 JandanTopSnapshot/1.0 repo(https://github.com/imdong/JandanTopSnapshot) BotID(%s)", botId)
+	req.Header.Set("User-Agent", userAgent)
+
+	// 保存 UA md5 到 README.md
+	saveUaMd5(userAgent)
 
 	// 发送请求并获取响应
 	client := &http.Client{}
@@ -395,5 +403,33 @@ func crossYear() {
 			fmt.Println("Error writing to index.md:", err)
 			return
 		}
+	}
+}
+
+// 保存 UA md5 到 README.md
+func saveUaMd5(userAgent string) {
+	// 计算 UA 的 md5
+	uaMd5 := fmt.Sprintf("%x", md5.Sum([]byte(userAgent)))
+
+	// 读取 README.md 文件
+	readmeContent, err := os.ReadFile("README.md")
+	if err != nil {
+		fmt.Println("Error reading README.md:", err)
+		return
+	}
+
+	// 先提取出原来的 md5, 如果不同则替换
+	md5Regex := regexp.MustCompile("(?m)^UA md5: `([^`]+)`.*?$")
+	oldMd5 := md5Regex.FindSubmatch(readmeContent)
+	if len(oldMd5) > 1 && string(oldMd5[1]) == uaMd5 {
+		return
+	}
+
+	// 替换 README.md 中的 UA md5
+	readmeContent = md5Regex.ReplaceAll(readmeContent, []byte(fmt.Sprintf("UA md5: `%s` (%s 更新)", uaMd5, now.Format("2006-01-02"))))
+	err = os.WriteFile("README.md", readmeContent, 0644)
+	if err != nil {
+		fmt.Println("Error writing to README.md:", err)
+		return
 	}
 }
