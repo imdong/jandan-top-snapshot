@@ -225,6 +225,13 @@ func readHtmlBody() (body []byte, err error) {
 		fmt.Println("Error sending request:", err)
 		return
 	}
+
+	// 是否被拒绝请求
+	if resp.StatusCode == http.StatusForbidden {
+		fmt.Println("Received 403 Forbidden. Exiting.")
+		os.Exit(1)
+	}
+
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(resp.Body)
