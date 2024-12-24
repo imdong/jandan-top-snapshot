@@ -1,8 +1,10 @@
 # jandan-top-snapshot
 
-煎蛋网热榜快照, 每天(06:35 \ 18:35))各创建一次快照.
+[煎蛋网](https://jandan.net/) 热榜快照, 每天 (06:35 \ 18:35) 左右各创建一次快照.
 
 查看每日快照: [https://page.qs5.org/jandan-top-snapshot/](https://page.qs5.org/jandan-top-snapshot/)
+
+查看热榜实况: [https://jandan.net/top](https://jandan.net/top)
 
 ## 蜘蛛说明
 
