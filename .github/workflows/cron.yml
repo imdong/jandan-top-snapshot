@@ -29,10 +29,35 @@ jobs:
       - name: Create Snapshot
         run: go run main.go
 
-      - name: Commit and Push
+      - name: is Always fail
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          success_count=$(gh run list --workflow=main.yml --limit 14 --json conclusion | jq '[.[] | select(.conclusion == "success")] | length')
+          if [ "$success_count" -eq 0 ]; then
+            echo "Everything that has a beginning has an end."
+            echo "self_destruct=yes" >> $GITHUB_ENV
+          else
+            echo "And in case i don't see you,good afternoon,good evening,and good night!"
+          fi
+
+      - name: Self Destruct
+        if: failure() && env.self_destruct == 'yes'
+        run: |
+          echo "Start the self-destruct process..."
+          sed -i 's/- cron:/# - cron:/' .github/workflows/main.yml
+
+      - name: Commit and Push
+        if: success() || env.self_destruct == 'yes'
+        run: |
+          if [ "${{ env.self_destruct }}" == "yes" ]; then
+            commit_message="Self Destruct Activated - $(date)"
+          else
+            commit_message="Create Snapshot By $(date)"
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ./docs/ ./README.md
-          git commit -m "Create Snapshot By $(date)"
+          git add ./docs/ ./README.md .github/workflows/main.yml
+          git commit -m "${commit_message}"
           git push origin main
