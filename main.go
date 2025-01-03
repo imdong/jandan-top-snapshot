@@ -389,7 +389,7 @@ func crossYear() {
 			return
 		}
 		// 追加到 years.md 文件
-		yearsFileName := "years.md"
+		yearsFileName := "./docs/years.md"
 		yearsContent, err := os.ReadFile(yearsFileName)
 		if err != nil {
 			fmt.Println("Error reading years.md:", err)
