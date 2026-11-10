@@ -1,442 +1,236 @@
 package main
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/md5"
-	"crypto/rand"
-	"encoding/base64"
+	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"html"
 	"io"
-	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
 
-var aesCipher = "your-32-byte-long-key-here!00000"
-
-type Row struct {
-	ID      string // 唯一ID
-	Code    string // 防伪码
-	Name    string // 作者
-	Time    string // 发布时间
-	Type    string // 类型
-	Content string // 内容
-	OO      string // OO数
-	XX      string // XX数
-	Tucao   string // 吐槽数
+type Response struct {
+	Code int    `json:"code"`
+	Data []Post `json:"data"`
+}
+type Post struct {
+	Content string `json:"content"`
+	Hot     *struct {
+		Content string `json:"content"`
+	} `json:"hot_tucao"`
+}
+type Entry struct {
+	ID      string `json:"id"`
+	Time    string `json:"time"`
+	File    string `json:"file"`
+	Release string `json:"release"`
+}
+type Snapshot struct {
+	Time   string            `json:"time"`
+	Source string            `json:"source"`
+	Data   json.RawMessage   `json:"data"`
+	Media  map[string]string `json:"media"`
 }
 
-// 获取当前时间
-var now = time.Now()
-var env = os.Getenv("ENV")
-
-// 蜘蛛的ID
-var botId = os.Getenv("BOT_ID")
-
-// 更新 list.json 文件
-var listFileName = "./docs/index.md"
+var client = &http.Client{Timeout: 60 * time.Second}
+var sources = regexp.MustCompile(`(?i)<(?:img|video|source)\b[^>]*?\s(?:src|data-src)\s*=\s*["']([^"']+)["']`)
 
 func main() {
-	// 获取环境提供的密码
-	if os.Getenv("AES_CIPHER") != "" {
-		aesCipher = os.Getenv("AES_CIPHER")
-	}
-
-	// 扫描加密文件解密
-	scanAesDecrypt()
-
-	// 获取当前时间用于文件命名
-	dateStr := now.Format("200601")
-	hourStr := now.Format("0215")
-	fileName := fmt.Sprintf("%s/%s.md", dateStr, hourStr)
-
-	// 如果是本地环境且本地有缓存则直接读取
-	var body []byte
-	_, err := os.Stat("./docs/body.html")
-	if env != "local" || err != nil {
-		body, err = readHtmlBody()
-		if err != nil {
-			return
-		}
-	} else {
-		body, err = os.ReadFile("./docs/body.html")
-	}
-
-	rows := matchRows(string(body))
-
-	mdContent := makeMdDoc(rows)
-
-	// 对 mdContent 进行 aes 加密后再写到文件
-	mdContent = aesEncrypt(mdContent)
-
-	// 保证储存目录存在
-	err = os.MkdirAll("./docs/"+dateStr, 0755)
-
-	// 保存到文件
-	saveToFile(fileName, mdContent)
-
-	// 检查列表是否需要跨年
-	crossYear()
-
-	// 更新列表
-	appendList(fileName)
-
-	fmt.Println("Comments successfully saved and index.md updated.")
-}
-
-// aesEncrypt encrypts the content using AES encryption.
-func aesEncrypt(content string) string {
-	key := []byte(aesCipher) // 32 bytes key for AES-256
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		fmt.Println("Error creating cipher:", err)
-		return ""
-	}
-
-	// Pad the content to be a multiple of the block size
-	padding := block.BlockSize() - len(content)%block.BlockSize()
-	padText := bytes.Repeat([]byte{byte(padding)}, padding)
-	content += string(padText)
-
-	ciphertext := make([]byte, aes.BlockSize+len(content))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		fmt.Println("Error generating IV:", err)
-		return ""
-	}
-
-	mode := cipher.NewCBCEncrypter(block, iv)
-	mode.CryptBlocks(ciphertext[aes.BlockSize:], []byte(content))
-
-	return base64.StdEncoding.EncodeToString(ciphertext)
-}
-
-// aesDecrypt decrypts the content using AES encryption.
-func aesDecrypt(content string) string {
-	key := []byte(aesCipher) // 32 bytes key for AES-256
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		fmt.Println("Error creating cipher:", err)
-		return ""
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(content)
-	if err != nil {
-		fmt.Println("Error decoding content:", err)
-		return ""
-	}
-
-	if len(ciphertext) < aes.BlockSize {
-		fmt.Println("Ciphertext is too short")
-		return ""
-	}
-
-	iv := ciphertext[:aes.BlockSize]
-	ciphertext = ciphertext[aes.BlockSize:]
-
-	mode := cipher.NewCBCDecrypter(block, iv)
-	mode.CryptBlocks(ciphertext, ciphertext)
-
-	// Unpad the content
-	padding := int(ciphertext[len(ciphertext)-1])
-	content = string(ciphertext[:len(ciphertext)-padding])
-
-	return content
-}
-
-// convertToMarkdown converts HTML content to Markdown format and removes unwanted HTML tags.
-func convertToMarkdown(html string) string {
-	// Convert the class="view_img_link" link to Markdown format
-	html = regexp.MustCompile(`<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>`).ReplaceAllString(html, "[$2]($1)")
-
-	// Convert img tags to Markdown format
-	html = regexp.MustCompile(`<img[^>]*src="([^"]+)"[^>]*>`).ReplaceAllString(html, "![](https:$1)")
-
-	// Replace HTML line breaks with newlines
-	html = strings.ReplaceAll(html, "<br />", "  \n\n")
-
-	// Remove any remaining HTML tags
-	html = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(html, "")
-
-	return html
-}
-
-// scanAesDecrypt scans the directory for .aes files and decrypts them.
-func scanAesDecrypt() {
-	// 扫描目录下 aes 文件解密
-	_ = fs.WalkDir(os.DirFS("./docs"), ".", func(path string, d fs.DirEntry, err error) error {
-		if !strings.HasSuffix(path, ".aes") {
-			return nil
-		}
-
-		// 读取文件内容
-		content, err := os.ReadFile("./docs/" + path)
-		if err != nil {
-			fmt.Println("Error reading file:", err)
-			return err
-		}
-
-		// 解密文件内容
-		decryptedContent := aesDecrypt(string(content))
-
-		// 写入解密后的文件
-		err = os.WriteFile("./docs/"+path[:len(path)-4], []byte(decryptedContent), 0644)
-		if err != nil {
-			fmt.Println("Error writing to file:", err)
-			return err
-		}
-
-		// 删除加密文件
-		err = os.Remove("./docs/" + path)
-		if err != nil {
-			fmt.Println("Error deleting file:", err)
-			return err
-		}
-		return nil
-	})
-}
-
-// readHtmlBody 读取 HTML 内容
-func readHtmlBody() (body []byte, err error) {
-	// 创建一个新的请求
-	url := "https://jandan.net/top"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		fmt.Println("Error creating request:", err)
-		return
-	}
-
-	// 自定义 UA, 如果持续一周 403 则终止该仓库
-	userAgent := fmt.Sprintf("Mozilla/5.0 JandanTopSnapshot/1.0 repo(https://github.com/imdong/JandanTopSnapshot) BotID(%s)", botId)
-	req.Header.Set("User-Agent", userAgent)
-
-	// 保存 UA md5 到 README.md
-	saveUaMd5(userAgent)
-
-	// 发送请求并获取响应
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("Error sending request:", err)
-		return
-	}
-
-	// 是否被拒绝请求
-	if resp.StatusCode == http.StatusForbidden {
-		fmt.Println("Received 403 Forbidden. Exiting.")
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return
-	}
-
-	// 将 body 缓存到本地, 并用于调试
-	if env == "local" {
-		err = os.WriteFile("./docs/body.html", body, 0644)
+}
+func get(address string) ([]byte, error) {
+	var last error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest("GET", address, nil)
 		if err != nil {
-			fmt.Println("Error writing to file:", err)
-			return
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 JandanTopSnapshot/2.0 BotID("+os.Getenv("BOT_ID")+")")
+		req.Header.Set("Referer", "https://jandan.net/")
+		resp, err := client.Do(req)
+		if err == nil {
+			body, e := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+			resp.Body.Close()
+			if e == nil && resp.StatusCode == 200 && len(body) > 0 {
+				return body, nil
+			}
+			err = fmt.Errorf("GET %s: status %d: %v", address, resp.StatusCode, e)
+		}
+		last = err
+		if attempt < 2 {
+			time.Sleep(time.Second * time.Duration(attempt+1))
 		}
 	}
-
-	return body, nil
+	return nil, last
 }
-
-// matchRows 从 HTML 中匹配出评论数据
-func matchRows(html string) []Row {
-
-	// 使用正则匹配主要部分
-	mainBodyRegex := regexp.MustCompile(`(?s)<div id="comments">.*<!-- end comments -->`)
-	mainBody := mainBodyRegex.FindString(html)
-
-	// 提取单条记录的详细数据
-	rowRegex := regexp.MustCompile(`(?ms)<li id="comment-([^"]+)">[^/]+/a><strong\s+title="[^:：]+[：:]([^"]+)"[^>]*>([^<]+)<[^>]+>\s+<br>\s+<small>([^<]+)<[^>]+>\s+<[^<]+>[^@]+(@[^<]+)</b></small>\s+<br>\s+<p>(.*?)</p>\s+</div>[^[]+[^>]+>([^<]+)<[^[]+\[[^>]+>([^<]+)<[^[]+\[([^]]+)]\s*</a>[^"]+"\S+\s+</li>`)
-
-	// 匹配所有评论并提取数据
-	var rows []Row
-	for _, match := range rowRegex.FindAllStringSubmatch(mainBody, -1) {
-		// 将提取到的匹配项存入结构体
-		comment := Row{
-			ID:      match[1],
-			Code:    match[2],
-			Name:    match[3],
-			Time:    match[4],
-			Type:    match[5],
-			Content: convertToMarkdown(match[6]),
-			OO:      match[7],
-			XX:      match[8],
-			Tucao:   match[9],
-		}
-		rows = append(rows, comment)
-
-		//fmt.Printf("%d, %s\n", i, match[0])
+func mediaURL(raw string) string {
+	raw = html.UnescapeString(raw)
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
 	}
-
-	return rows
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	if ext == ".gif" {
+		u.Path = "/large/" + strings.TrimSuffix(path.Base(u.Path), path.Ext(u.Path)) + ".mp4"
+	} else if ext != ".mp4" && ext != ".webm" && ext != ".webp" {
+		u.Path += ".webp"
+	}
+	return u.String()
 }
-
-// makeMdDoc 生成 Markdown 文档
-func makeMdDoc(rows []Row) string {
-	// 写入 Markdown 文件
-	mdContent := fmt.Sprintf("# 煎蛋热榜快照\n\n> 采集时间: %s\n\n", now.Format("2006-01-02 15:04:05"))
-	for _, comment := range rows {
-		mdContent += fmt.Sprintf("## %s (%s) \n\n", comment.Name, comment.Time)
-		mdContent += fmt.Sprintf("- **ID**: %s #%s, **防伪码**: %s\n", comment.Type, comment.ID, comment.Code)
-		mdContent += fmt.Sprintf("- **正文**: %s\n", comment.Content)
-		mdContent += fmt.Sprintf(
-			"- **OO**: [%s](https://jandan.net/t/%s#tucao-like), **XX**: [%s](https://jandan.net/t/%s#tucao-unlike), **Tucao**: [%s](https://jandan.net/t/%s#tucao-list)\n\n",
-			comment.OO, comment.ID, comment.XX, comment.ID, comment.Tucao, comment.ID,
-		)
+func writeJSON(name string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
 	}
-
-	return mdContent
+	if err = os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+		return err
+	}
+	if err = os.WriteFile(name+".tmp", append(b, '\n'), 0644); err != nil {
+		return err
+	}
+	return os.Rename(name+".tmp", name)
 }
-
-// saveToFile 保存到文件
-func saveToFile(fileName string, mdContent string) {
-	// 写入加密文件
-	err := os.WriteFile("./docs/"+fileName+".aes", []byte(mdContent), 0644)
+func run() error {
+	endpoint := os.Getenv("API_URL")
+	if endpoint == "" {
+		endpoint = "https://jandan.net/api/top/post/26402?cdn_line=default"
+	}
+	body, err := get(endpoint)
 	if err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
+		return err
 	}
-
-	// 写入未加密文件
-	err = os.WriteFile("./docs/"+fileName, []byte("# 煎蛋热榜快照\n\n快照内容将在12小时内开放, 请到 [jandan.net/top](https://jandan.net/top) 查看最新内容"), 0644)
-	if err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
-	}
-}
-
-// appendList 追加到 list.md 文件
-func appendList(mdFile string) {
-	listContent, err := os.ReadFile(listFileName)
-	if err != nil {
-		fmt.Println("Error reading index.md:", err)
-		return
-	}
-
-	// 删除 index.md 文件中的 **12小时后开放**
-	listContent = []byte(strings.ReplaceAll(string(listContent), " **12 小时后开放**", ""))
-
-	// 先判断是否有当前月份行 ^- 12月$ 如果没有就添加
-	month := now.Format("01")
-	monthRegex := regexp.MustCompile(fmt.Sprintf(`(?m)^- %s月`, month))
-	if !monthRegex.Match(listContent) {
-		// 添加当前月份行
-		listContent = append(listContent, []byte(fmt.Sprintf("\n- %s月", month))...)
-	}
-
-	// 检查是否有当前日期行 ^-- 01/02$ 如果没有就添加
-	date := now.Format("01月02日")
-	dateRegex := regexp.MustCompile(fmt.Sprintf(`(?m)^  - %s:`, date))
-	if !dateRegex.Match(listContent) {
-		// 添加当前日期行
-		listContent = append(listContent, []byte(fmt.Sprintf(
-			"\n  - %s: [%s](%s) **12 小时后开放**",
-			date, now.Format("15:04:05"), mdFile,
-		))...)
-	} else {
-		dayRegex := regexp.MustCompile(fmt.Sprintf(`(?m)  - %s:([^$]+)$`, date))
-
-		// 在匹配到的日期行后添加新的链接,但不换行, 使用 / 与前一个链接分隔, 用正则表达式 ^  - 01月02日:([^$]+)$ 替换
-		listContent = []byte(
-			dayRegex.ReplaceAllString(string(listContent), fmt.Sprintf(
-				"  - %s:$1 / [%s](%s) **12 小时后开放**",
-				date, now.Format("15:04:05"), mdFile,
-			)),
-		)
-	}
-
-	// 最终写入 index.md 文件
-	err = os.WriteFile(listFileName, listContent, 0644)
-	if err != nil {
-		fmt.Println("Error writing to index.md:", err)
-		return
-	}
-}
-
-// 添加一个跨年时的任务逻辑, 当 index 中没有 ## 2024年 时,认为已经跨年,将该文档改为 2024.md, 并创建新的 index.md, 然后将 2024.md 加入到 years.md 中
-func crossYear() {
-	// 读取 index.md 文件
-	indexContent, err := os.ReadFile(listFileName)
-	if err != nil {
-		fmt.Println("Error reading index.md:", err)
-		return
-	}
-
-	// 检查是否有当前年份行 ^## [0-9]{4}年$ 并取出匹配到的年份
-	yearRegex := regexp.MustCompile(`(?m)^## ([0-9]{4})年`)
-	matches := yearRegex.FindStringSubmatch(string(indexContent))
-	if len(matches) > 1 && matches[1] != now.Format("2006") {
-		// 认为需要跨年,移动 index 到 对应年份
-		err := os.Rename(listFileName, fmt.Sprintf("./docs/%s.md", matches[1]))
-		if err != nil {
-			fmt.Println("Error renaming file:", err)
-			return
-		}
-		// 追加到 years.md 文件
-		yearsFileName := "./docs/years.md"
-		yearsContent, err := os.ReadFile(yearsFileName)
-		if err != nil {
-			fmt.Println("Error reading years.md:", err)
-			return
-		}
-		// 在 years.md 文件中追加新的年份
-		yearsContent = append(yearsContent, []byte(fmt.Sprintf("- [%s 年](./%s.md)\n", matches[1], matches[1]))...)
-		err = os.WriteFile(yearsFileName, yearsContent, 0644)
-		if err != nil {
-			fmt.Println("Error writing to years.md:", err)
-			return
-		}
-
-		// 创建新的 index.md 文件
-		indexContent = []byte(fmt.Sprintf("# 每日快照索引\n\n> 历年快照请查看 [历年快照](years.md)。\n\n## %s年\n", now.Format("2006")))
-		err = os.WriteFile(listFileName, indexContent, 0644)
-		if err != nil {
-			fmt.Println("Error writing to index.md:", err)
-			return
+	var response Response
+	err = json.Unmarshal(body, &response)
+	if err == nil && response.Code == 0 && len(response.Data) == 0 && strings.Contains(endpoint, "?cdn_line=default") {
+		endpoint = strings.Replace(endpoint, "?cdn_line=default", "", 1)
+		body, err = get(endpoint)
+		if err == nil {
+			err = json.Unmarshal(body, &response)
 		}
 	}
-}
-
-// 保存 UA md5 到 README.md
-func saveUaMd5(userAgent string) {
-	// 计算 UA 的 md5
-	uaMd5 := fmt.Sprintf("%x", md5.Sum([]byte(userAgent)))
-
-	// 读取 README.md 文件
-	readmeContent, err := os.ReadFile("README.md")
 	if err != nil {
-		fmt.Println("Error reading README.md:", err)
-		return
+		return err
 	}
-
-	// 先提取出原来的 md5, 如果不同则替换
-	md5Regex := regexp.MustCompile("(?m)^UA md5: `([^`]+)`.*?$")
-	oldMd5 := md5Regex.FindSubmatch(readmeContent)
-	if len(oldMd5) > 1 && string(oldMd5[1]) == uaMd5 {
-		return
+	if response.Code != 0 || len(response.Data) == 0 {
+		return fmt.Errorf("API returned code=%d or empty data; no snapshot saved", response.Code)
 	}
-
-	// 替换 README.md 中的 UA md5
-	readmeContent = md5Regex.ReplaceAll(readmeContent, []byte(fmt.Sprintf("UA md5: `%s` (%s 更新)", uaMd5, now.Format("2006-01-02"))))
-	err = os.WriteFile("README.md", readmeContent, 0644)
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err = json.Unmarshal(body, &envelope); err != nil {
+		return err
+	}
+	zone, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		fmt.Println("Error writing to README.md:", err)
-		return
+		return err
 	}
+	now := time.Now().In(zone)
+	id := now.Format("20060102-150405")
+	media := map[string]string{}
+	for _, p := range response.Data {
+		contents := []string{p.Content}
+		if p.Hot != nil {
+			contents = append(contents, p.Hot.Content)
+		}
+		for _, content := range contents {
+			for _, m := range sources.FindAllStringSubmatch(content, -1) {
+				u := mediaURL(m[1])
+				if u != "" {
+					sum := sha256.Sum256([]byte(u))
+					media[u] = hex.EncodeToString(sum[:]) + path.Ext(strings.Split(u, "?")[0])
+				}
+			}
+		}
+	}
+	if err = os.MkdirAll("dist", 0755); err != nil {
+		return err
+	}
+	archive := "dist/media-" + id + ".zip"
+	f, err := os.Create(archive + ".tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archive + ".tmp")
+	zw := zip.NewWriter(f)
+	keys := make([]string, 0, len(media))
+	for u := range media {
+		keys = append(keys, u)
+	}
+	sort.Strings(keys)
+	for _, u := range keys {
+		fmt.Println("Downloading", u)
+		data, e := get(u)
+		if e != nil {
+			zw.Close()
+			f.Close()
+			return e
+		}
+		w, e := zw.CreateHeader(&zip.FileHeader{Name: media[u], Method: zip.Store})
+		if e == nil {
+			_, e = w.Write(data)
+		}
+		if e != nil {
+			zw.Close()
+			f.Close()
+			return e
+		}
+	}
+	if err = zw.Close(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(archive+".tmp", archive); err != nil {
+		return err
+	}
+	file := "snapshots/" + now.Format("200601") + "/" + id + ".json"
+	if err = writeJSON("docs/"+file, Snapshot{now.Format(time.RFC3339), endpoint, envelope.Data, media}); err != nil {
+		return err
+	}
+	entries := []Entry{}
+	old, err := os.ReadFile("docs/snapshots.json")
+	if err == nil {
+		if err = json.Unmarshal(old, &entries); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	repo := os.Getenv("GITHUB_REPOSITORY")
+	if repo == "" {
+		repo = "imdong/jandan-top-snapshot"
+	}
+	entries = append(entries, Entry{id, now.Format("2006-01-02 15:04:05"), file, "https://github.com/" + repo + "/releases/download/snapshot-" + id + "/media-" + id + ".zip"})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID > entries[j].ID })
+	if err = writeJSON("docs/snapshots.json", entries); err != nil {
+		return err
+	}
+	if output := os.Getenv("GITHUB_OUTPUT"); output != "" {
+		f, e := os.OpenFile(output, os.O_APPEND|os.O_WRONLY, 0644)
+		if e != nil {
+			return e
+		}
+		defer f.Close()
+		_, err = fmt.Fprintf(f, "tag=snapshot-%s\narchive=%s\n", id, archive)
+	}
+	fmt.Printf("Saved %s (%d posts, %d media)\n", file, len(response.Data), len(media))
+	return err
 }
