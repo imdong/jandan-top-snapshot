@@ -1,5 +1,11 @@
 [
   {
+    "id": "20261117-183837",
+    "time": "2026-11-17 18:38:37",
+    "file": "snapshots/202611/20261117-183837.json",
+    "release": "https://github.com/imdong/jandan-top-snapshot/releases/download/snapshot-20261117-183837/media-20261117-183837.zip"
+  },
+  {
     "id": "20261117-063748",
     "time": "2026-11-17 06:37:48",
     "file": "snapshots/202611/20261117-063748.json",
